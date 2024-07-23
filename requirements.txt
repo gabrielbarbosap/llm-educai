@@ -1,8 +1,7 @@
 fastapi
 uvicorn
 PyPDF2
-langchain
 openai
 faiss-cpu
+langchain
 pydantic
-fastapi
