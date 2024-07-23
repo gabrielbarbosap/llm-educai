@@ -13,7 +13,7 @@ from pydantic import BaseModel
 app = FastAPI()
 
 # Configura a chave da API
-os.environ["OPENAI_API_KEY"] = "sk-proj-BugLgiPaoAVkJm8BQQacT3BlbkFJEWQQI2gQm0t9h77Ig1zV"
+os.environ["OPENAI_API_KEY"] = "sk-proj-rIwqqXymkLe19ZCM6dPZT3BlbkFJZldS7eArrgbKKctckojc"
 
 # Função para carregar ou criar embeddings
 def load_or_create_embeddings(texts, index_path='faiss_index.index', docstore_path='docstore.pkl', id_map_path='index_to_docstore_id.pkl'):
