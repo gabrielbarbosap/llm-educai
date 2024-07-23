@@ -9,11 +9,10 @@ from langchain.llms import OpenAI
 from langchain.chains.question_answering import load_qa_chain
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from dotenv import load_dotenv
 
+load_dotenv()
 app = FastAPI()
-
-# Configura a chave da API
-os.environ["OPENAI_API_KEY"] = "sk-proj-zSNFInnCxDKmqdJe9LvjT3BlbkFJ5xbp1QwOlM1osPcNhYQM"
 
 # Função para carregar ou criar embeddings
 def load_or_create_embeddings(texts, index_path='faiss_index.index', docstore_path='docstore.pkl', id_map_path='index_to_docstore_id.pkl'):
@@ -69,8 +68,11 @@ async def ask_question(request: QueryRequest):
         # Carregar ou criar embeddings
         docsearch = load_or_create_embeddings(texts)
 
-        # Configurar o modelo de chat
-        llm = OpenAI()  # ou "gpt-3.5-turbo"
+        # Configurar o modelo de chat com a chave da API da variável de ambiente
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=500, detail="Chave API não encontrada.")
+        llm = OpenAI(api_key=api_key)  # ou "gpt-3.5-turbo"
 
         # Criar a cadeia de QA
         chain = load_qa_chain(llm, chain_type="stuff")
