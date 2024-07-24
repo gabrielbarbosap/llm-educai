@@ -56,7 +56,7 @@ async def ask_question(request: QueryRequest):
             raise HTTPException(status_code=500, detail="Chave API não encontrada.")
         llm = OpenAI(api_key=api_key)
         chain = load_qa_chain(llm, chain_type="stuff")
-        query = "Você é um professor simpatico, cordial e educado. Baseado na sua base de pesquisa que é o que ja foi pre-carregado você recebera uma pergunta e deverá entender o contexto dela e saber se ela tem a ver com o tema principal do livro ou se a resposta está no livro. Se a resposta nao tiver no livro você devera respoder o seguinte 'Não tenho a resposta para essa pergunta na minha base de dados', limite-se a responder com no maximo 100 caracteres e aja como um professor e ensine durante sua resposta. Esta foi a pergunta do usuario: " + request.query    
+        query = "Você é um professor simpático e educado. Quando receber uma pergunta, verifique se a resposta está no livro pré-carregado. Se a resposta estiver no livro, forneça-a de maneira cordial e, se possível, inclua uma breve explicação adicional. Se a resposta não estiver no livro, responda com: 'Não tenho a resposta para essa pergunta na minha base de dados.'. Mantenha suas respostas dentro de 100 caracteres e sempre aja como um professor, promovendo o aprendizado. Essa é a pergunta atual do usuário:" + request.query    
         docs = docsearch.similarity_search(query)
         result = chain.run(input_documents=docs, question=query)
         return {"result": result}
