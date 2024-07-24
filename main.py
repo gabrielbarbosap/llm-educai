@@ -47,7 +47,7 @@ async def read_pdf(pdf_path):
 @app.post("/ask")
 async def ask_question(request: QueryRequest):
     try:
-        raw_text = await read_pdf('livro.pdf')
+        raw_text = await read_pdf('boleto.pdf')
         text_splitter = CharacterTextSplitter(separator="\n", chunk_size=1000, chunk_overlap=200, length_function=len)
         texts = text_splitter.split_text(raw_text)
         docsearch = load_or_create_embeddings(texts, request.index_path, request.docstore_path, request.id_map_path)
