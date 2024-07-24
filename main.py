@@ -94,7 +94,7 @@ async def ask_question(request: QueryRequest):
         chain = load_qa_chain(llm, chain_type="stuff")
 
         # Consulta
-        query = request.query + " -- analise a pergunta e veja se tem a ver com o tema do livro. se a pergunta for sobre um assunto que nao tem no livro apenas diga ao usuario que você nao sabe nada sobre esse assunto"
+        query = request.query + " -- analise a pergunta, entenda o contexto da mesma e veja se tem a ver com o tema do livro. se a pergunta for sobre um assunto que nao tem no livro apenas diga ao usuario que você nao sabe nada sobre esse assunto"
         docs = docsearch.similarity_search(query)
         result = chain.run(input_documents=docs, question=query)
         return {"result": result}
