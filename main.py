@@ -10,13 +10,18 @@ from langchain.chains.question_answering import load_qa_chain
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from dotenv import load_dotenv
+import asyncio
+import aiofiles
 
-load_dotenv()
 app = FastAPI()
 
+# Carregar variáveis de ambiente do arquivo .env
+load_dotenv()
+
 # Função para carregar ou criar embeddings
-def load_or_create_embeddings(texts, index_path='faiss_index.index', docstore_path='docstore.pkl', id_map_path='index_to_docstore_id.pkl'):
+def load_or_create_embeddings(texts, index_path, docstore_path, id_map_path):
     if os.path.exists(index_path) and os.path.exists(docstore_path) and os.path.exists(id_map_path):
+        print('entrou aqui tem')
         # Carregar o índice FAISS existente
         index = faiss.read_index(index_path)
         # Carregar o docstore e o mapeamento de IDs
@@ -29,6 +34,7 @@ def load_or_create_embeddings(texts, index_path='faiss_index.index', docstore_pa
         # Criar o FAISS com o índice carregado e a função de embedding
         docsearch = FAISS(index=index, embedding_function=embedding_function, docstore=docstore, index_to_docstore_id=index_to_docstore_id)
     else:
+        print('entrou aqui')
         embeddings = OpenAIEmbeddings()
         docsearch = FAISS.from_texts(texts, embeddings)
         # Salvar o índice FAISS
@@ -42,19 +48,24 @@ def load_or_create_embeddings(texts, index_path='faiss_index.index', docstore_pa
 
 class QueryRequest(BaseModel):
     query: str
+    index_path: str
+    docstore_path: str
+    id_map_path: str
+
+async def read_pdf_async(pdf_path):
+    reader = PdfReader(pdf_path)
+    raw_text = ''
+    for page in reader.pages:
+        text = page.extract_text()
+        if text:
+            raw_text += text
+    return raw_text
 
 @app.post("/ask")
 async def ask_question(request: QueryRequest):
     try:
-        # Ler o PDF
-        reader = PdfReader('livro.pdf')
-
-        # Ler e concatenar o texto do PDF
-        raw_text = ''
-        for page in reader.pages:
-            text = page.extract_text()
-            if text:
-                raw_text += text
+        # Ler o PDF de forma assíncrona
+        raw_text = await read_pdf_async('livro.pdf')
 
         # Dividir o texto em chunks
         text_splitter = CharacterTextSplitter(
@@ -65,8 +76,13 @@ async def ask_question(request: QueryRequest):
         )
         texts = text_splitter.split_text(raw_text)
 
+        # Definir os caminhos dos arquivos
+        index_path = request.index_path
+        docstore_path = request.docstore_path
+        id_map_path = request.id_map_path
+
         # Carregar ou criar embeddings
-        docsearch = load_or_create_embeddings(texts)
+        docsearch = load_or_create_embeddings(texts, index_path, docstore_path, id_map_path)
 
         # Configurar o modelo de chat com a chave da API da variável de ambiente
         api_key = os.getenv("OPENAI_API_KEY")
@@ -78,7 +94,7 @@ async def ask_question(request: QueryRequest):
         chain = load_qa_chain(llm, chain_type="stuff")
 
         # Consulta
-        query = request.query + " -- se a pergunta não tiver no livro, informe que não tem a ver com o tema selecionado"
+        query = request.query + " -- analise a pergunta e veja se tem a ver com o tema do livro. se a pergunta for sobre um assunto que nao tem no livro apenas diga ao usuario que você nao sabe nada sobre esse assunto"
         docs = docsearch.similarity_search(query)
         result = chain.run(input_documents=docs, question=query)
         return {"result": result}
