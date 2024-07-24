@@ -10,8 +10,6 @@ from langchain.chains.question_answering import load_qa_chain
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from dotenv import load_dotenv
-import asyncio
-import aiofiles
 
 app = FastAPI()
 
@@ -19,9 +17,9 @@ app = FastAPI()
 load_dotenv()
 
 # Função para carregar ou criar embeddings
+# Função para carregar ou criar embeddings
 def load_or_create_embeddings(texts, index_path, docstore_path, id_map_path):
     if os.path.exists(index_path) and os.path.exists(docstore_path) and os.path.exists(id_map_path):
-        print('entrou aqui tem')
         # Carregar o índice FAISS existente
         index = faiss.read_index(index_path)
         # Carregar o docstore e o mapeamento de IDs
@@ -32,9 +30,14 @@ def load_or_create_embeddings(texts, index_path, docstore_path, id_map_path):
         # Criar a função de embedding
         embedding_function = OpenAIEmbeddings()
         # Criar o FAISS com o índice carregado e a função de embedding
-        docsearch = FAISS(index=index, embedding_function=embedding_function, docstore=docstore, index_to_docstore_id=index_to_docstore_id)
+        docsearch = FAISS(
+            index=index, 
+            embedding_function=embedding_function, 
+            docstore=docstore, 
+            index_to_docstore_id=index_to_docstore_id
+        )
     else:
-        print('entrou aqui')
+        print("Arquivos FAISS não encontrados. Criando novos embeddings...")
         embeddings = OpenAIEmbeddings()
         docsearch = FAISS.from_texts(texts, embeddings)
         # Salvar o índice FAISS
@@ -44,8 +47,8 @@ def load_or_create_embeddings(texts, index_path, docstore_path, id_map_path):
             pickle.dump(docsearch.docstore, f)
         with open(id_map_path, 'wb') as f:
             pickle.dump(docsearch.index_to_docstore_id, f)
+        print("Novos embeddings criados e salvos com sucesso.")
     return docsearch
-
 class QueryRequest(BaseModel):
     query: str
     index_path: str
@@ -60,8 +63,8 @@ async def read_pdf_async(pdf_path):
         if text:
             raw_text += text
     return raw_text
-
 @app.post("/ask")
+
 async def ask_question(request: QueryRequest):
     try:
         # Ler o PDF de forma assíncrona
@@ -88,13 +91,13 @@ async def ask_question(request: QueryRequest):
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise HTTPException(status_code=500, detail="Chave API não encontrada.")
-        llm = OpenAI(api_key=api_key)  # ou "gpt-3.5-turbo"
+        llm = OpenAI(api_key=api_key)
 
         # Criar a cadeia de QA
         chain = load_qa_chain(llm, chain_type="stuff")
 
         # Consulta
-        query = request.query + " -- analise a pergunta, entenda o contexto da mesma e veja se tem a ver com o tema do livro. se a pergunta for sobre um assunto que nao tem no livro apenas diga ao usuario que você nao sabe nada sobre esse assunto"
+        query = "Você é um professor simpatico, cordial e educado. Baseado na sua base de pesquisa que é o que ja foi pre-carregado. você recebera uma pergunta que você deverá entender o contexto dela e saber se ela tem a ver com o tema principal do livro ou se a resposta está no livro. Se ela não tiver a ver nem com o tema principal nem que a resposta esteja exposta de forma clara no livro, você devera respoder o seguinte 'Não tenho a resposta para essa pergunta na minha base de dados', limite-se a responder com no maximo 100 caracteres. Esta foi a pergunta do usuario: " + request.query
         docs = docsearch.similarity_search(query)
         result = chain.run(input_documents=docs, question=query)
         return {"result": result}

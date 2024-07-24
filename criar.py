@@ -76,7 +76,7 @@ def main(query, pdf_path, index_path, docstore_path, id_map_path):
         chain = load_qa_chain(llm, chain_type="stuff")
 
         # Consulta
-        query = query + " -- se a pergunta não tiver no livro, informe que não tem a ver com o tema selecionado"
+        query = query + ". se a pergunta não tiver no livro, informe que não tem a ver com o tema selecionado"
         docs = docsearch.similarity_search(query)
         result = chain.run(input_documents=docs, question=query)
         print({"result": result})
@@ -84,9 +84,9 @@ def main(query, pdf_path, index_path, docstore_path, id_map_path):
         print(f"Erro: {str(e)}")
 
 if __name__ == "__main__":
-    query = "Sua pergunta aqui"
+    query = "sobre oq fala o livro, se limite a 40 caracteres"
     pdf_path = 'historia.pdf'
-    index_path = 'fisica2.index'
-    docstore_path = 'fisica2.pkl'
-    id_map_path = 'fisica2.pkl'
+    index_path = 'historia_index.index'
+    docstore_path = 'historia_path.pkl'
+    id_map_path = 'historia_map.pkl'
     main(query, pdf_path, index_path, docstore_path, id_map_path)
