@@ -7,3 +7,5 @@ langchain
 pydantic
 langchain-community
 tiktoken
+aiofiles
+asyncio
