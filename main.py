@@ -6,18 +6,20 @@ from langchain.text_splitter import CharacterTextSplitter
 from langchain.vectorstores import FAISS
 from langchain.llms import OpenAI
 from langchain.chains.question_answering import load_qa_chain
-from langchain.chains import LLMChain
 import os
 import pickle
 import faiss
-from dotenv import load_dotenv
+import logging
+from typing import List, Dict
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from typing import List, Dict
-import logging
+from dotenv import load_dotenv
 
 app = FastAPI()
 load_dotenv()
+
+# Initialize logging
+logging.basicConfig(level=logging.INFO)
 
 def load_or_create_embeddings(texts, index_path, docstore_path, id_map_path):
     if os.path.exists(index_path) and os.path.exists(docstore_path) and os.path.exists(id_map_path):
@@ -38,16 +40,16 @@ def load_or_create_embeddings(texts, index_path, docstore_path, id_map_path):
             pickle.dump(docsearch.index_to_docstore_id, f)
     return docsearch
 
+async def read_pdf(pdf_path):
+    reader = PdfReader(pdf_path)
+    raw_text = ''.join([page.extract_text() for page in reader.pages if page.extract_text()])
+    return raw_text
+
 class QueryRequest(BaseModel):
     query: str
     index_path: str
     docstore_path: str
     id_map_path: str
-
-async def read_pdf(pdf_path):
-    reader = PdfReader(pdf_path)
-    raw_text = ''.join([page.extract_text() for page in reader.pages if page.extract_text()])
-    return raw_text
 
 @app.post("/ask")
 async def ask_question(request: QueryRequest):
@@ -61,16 +63,12 @@ async def ask_question(request: QueryRequest):
             raise HTTPException(status_code=500, detail="Chave API não encontrada.")
         llm = OpenAI(api_key=api_key)
         chain = load_qa_chain(llm, chain_type="stuff")
-        query = "Você é um professor simpático e educado. Quando receber uma pergunta, verifique se a resposta está no livro pré-carregado. Se a resposta estiver no livro, forneça-a de maneira cordial e, se possível, inclua uma breve explicação adicional. Se a resposta não estiver no livro, responda com: 'Não tenho a resposta para essa pergunta na minha base de dados.'. Mantenha suas respostas dentro de 100 caracteres e sempre aja como um professor, promovendo o aprendizado. Essa é a pergunta atual do usuário:" + request.query    
+        query = "Você é um professor simpático e educado. Quando receber uma pergunta, verifique se a resposta está no livro pré-carregado. Se a resposta estiver no livro, forneça-a de maneira cordial e, se possível, inclua uma breve explicação adicional. Se a resposta não estiver no livro, responda com: 'Não tenho a resposta para essa pergunta na minha base de dados.'. Mantenha suas respostas dentro de 100 caracteres e sempre aja como um professor, promovendo o aprendizado. Essa é a pergunta atual do usuário:" + request.query
         docs = docsearch.similarity_search(query)
         result = chain.run(input_documents=docs, question=query)
         return {"result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# Initialize logging
-logging.basicConfig(level=logging.INFO)
 
 class QuizRequest(BaseModel):
     index_path: str
@@ -78,7 +76,6 @@ class QuizRequest(BaseModel):
     id_map_path: str
 
 def are_similar(question, existing_questions, threshold=0.8):
-    """ Check if a question is similar to any in the existing questions based on cosine similarity of their TF-IDF vectors """
     if not existing_questions:
         return False
     
@@ -107,57 +104,45 @@ async def create_quiz(request: QuizRequest):
         llm = OpenAI(api_key=api_key)
         chain = load_qa_chain(llm, chain_type="stuff")
 
-        # Initial quiz prompt
         quiz_prompt = (
             "Crie uma prova com 10 perguntas complexas sobre 'Os primeiros humanos', baseadas no livro fornecido. Cada pergunta deve ter no mínimo três linhas e deve estimular a interpretação de texto do aluno. Forneça três alternativas para cada pergunta, sendo apenas uma correta. As alternativas devem ser completas e não devem terminar com ponto de interrogação. Não inclua números antes das perguntas."
         )
         
-        # Initialize lists and variables
         question_list = []
         quiz_list = []
         num_tries = 0
-        max_tries = 10  # Limit the number of retries
+        max_tries = 10
         
         while len(quiz_list) < 10 and num_tries < max_tries:
             docs = docsearch.similarity_search(quiz_prompt)
             result = chain.run(input_documents=docs, question=quiz_prompt)
             
-            # Process result
             lines = result.split('\n')
             current_question = None
             
             for line in lines:
                 line = line.strip()
                 if line:
-                    if line.endswith('?'):  # Detect if the line is a question
-                        if current_question:
-                            if are_similar(current_question["question"], question_list):
-                                logging.info(f"Pergunta similar encontrada e descartada: {current_question['question']}")
-                                current_question = None
-                            else:
+                    if line.endswith('?'):
+                        if current_question and len(current_question["alternatives"]) == 3:
+                            if not are_similar(current_question["question"], question_list):
                                 quiz_list.append(current_question)
                                 question_list.append(current_question["question"])
                                 logging.info(f"Pergunta adicionada: {current_question['question']}")
                                 if len(quiz_list) >= 10:
                                     break
                         current_question = {"question": line, "alternatives": []}
-                    elif current_question and line[0] in ('a', 'b', 'c'):  # Check if the line starts with 'a', 'b', or 'c'
-                        if len(current_question["alternatives"]) < 3:
-                            current_question["alternatives"].append(line)
+                    elif current_question and len(current_question["alternatives"]) < 3 and line[0] in ('a', 'b', 'c'):
+                        current_question["alternatives"].append(line)
             
-            # Check last question
             if current_question and len(current_question["alternatives"]) == 3:
                 if not are_similar(current_question["question"], question_list):
-                    quiz_list.append(current_question)  # Add the last question if necessary
+                    quiz_list.append(current_question)
                     question_list.append(current_question["question"])
                     logging.info(f"Pergunta final adicionada: {current_question['question']}")
-                else:
-                    logging.info(f"Pergunta final similar encontrada e descartada: {current_question['question']}")
             
-            # If less than 10 questions, adjust prompt or take other actions
             if len(quiz_list) < 10:
                 logging.info('Tentando novamente...')
-                # Optionally modify the prompt or retry logic here
                 quiz_prompt = (
                     "Crie uma prova com 10 perguntas complexas sobre 'Os primeiros humanos', baseadas no livro fornecido. Cada pergunta deve ter no mínimo três linhas e deve estimular a interpretação de texto do aluno. Forneça três alternativas para cada pergunta, sendo apenas uma correta. As alternativas devem ser completas e não devem terminar com ponto de interrogação. Não inclua números antes das perguntas."
                 )
