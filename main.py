@@ -116,7 +116,7 @@ async def create_quiz(request: QuizRequest):
         question_list = []
         quiz_list = []
         num_tries = 0
-        max_tries = 5  # Limit the number of retries
+        max_tries = 10  # Limit the number of retries
         
         while len(quiz_list) < 10 and num_tries < max_tries:
             docs = docsearch.similarity_search(quiz_prompt)
