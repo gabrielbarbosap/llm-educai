@@ -14,14 +14,20 @@ from typing import List, Dict
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from dotenv import load_dotenv
+from openai import OpenAI
 
 app = FastAPI()
 load_dotenv()
 
-# Initialize logging
+# Inicializa o logging
 logging.basicConfig(level=logging.INFO)
 
 def load_or_create_embeddings(texts, index_path, docstore_path, id_map_path):
+    """
+    Carrega ou cria embeddings a partir dos textos fornecidos.
+    Se os arquivos de índice e de armazenamento de documentos existirem, eles são carregados.
+    Caso contrário, um novo índice é criado e salvo.
+    """
     if os.path.exists(index_path) and os.path.exists(docstore_path) and os.path.exists(id_map_path):
         index = faiss.read_index(index_path)
         with open(docstore_path, 'rb') as f:
@@ -41,11 +47,17 @@ def load_or_create_embeddings(texts, index_path, docstore_path, id_map_path):
     return docsearch
 
 async def read_pdf(pdf_path):
+    """
+    Lê o texto de um PDF e retorna o texto extraído.
+    """
     reader = PdfReader(pdf_path)
     raw_text = ''.join([page.extract_text() for page in reader.pages if page.extract_text()])
     return raw_text
 
 class QueryRequest(BaseModel):
+    """
+    Modelo de solicitação para consultar o PDF.
+    """
     query: str
     index_path: str
     docstore_path: str
@@ -53,10 +65,15 @@ class QueryRequest(BaseModel):
 
 @app.post("/ask")
 async def ask_question(request: QueryRequest):
+    """
+    Endpoint para responder perguntas com base no conteúdo do PDF.
+    """
     try:
+        # Lê o texto do PDF
         raw_text = await read_pdf('boleto.pdf')
         text_splitter = CharacterTextSplitter(separator="\n", chunk_size=1000, chunk_overlap=200, length_function=len)
         texts = text_splitter.split_text(raw_text)
+        # Carrega ou cria embeddings
         docsearch = load_or_create_embeddings(texts, request.index_path, request.docstore_path, request.id_map_path)
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -64,6 +81,7 @@ async def ask_question(request: QueryRequest):
         llm = OpenAI(api_key=api_key)
         chain = load_qa_chain(llm, chain_type="stuff")
         query = "Você é um professor simpático e educado. Quando receber uma pergunta, verifique se a resposta está no livro pré-carregado. Se a resposta estiver no livro, forneça-a de maneira cordial e, se possível, inclua uma breve explicação adicional. Se a resposta não estiver no livro, responda com: 'Não tenho a resposta para essa pergunta na minha base de dados.'. Mantenha suas respostas dentro de 100 caracteres e sempre aja como um professor, promovendo o aprendizado. Essa é a pergunta atual do usuário:" + request.query
+        # Busca os documentos relevantes
         docs = docsearch.similarity_search(query)
         result = chain.run(input_documents=docs, question=query)
         return {"result": result}
@@ -71,87 +89,93 @@ async def ask_question(request: QueryRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 class QuizRequest(BaseModel):
-    index_path: str
-    docstore_path: str
-    id_map_path: str
-
-def are_similar(question, existing_questions, threshold=0.8):
-    if not existing_questions:
-        return False
-    
-    vectorizer = TfidfVectorizer().fit([question] + existing_questions)
-    vectors = vectorizer.transform([question] + existing_questions)
-    similarity_scores = cosine_similarity(vectors[0:1], vectors[1:])
-    
-    if similarity_scores.size == 0:
-        return False
-
-    return any(score > threshold for score in similarity_scores[0])
+    """
+    Modelo de solicitação para criar um quiz.
+    """
+    prompt: str  
+    dificulty: str
+    year: str
+    content: str
+    vocabulary: str
+    goal: str
+    qtd_questions: int 
 
 @app.post("/create_quiz")
 async def create_quiz(request: QuizRequest):
+    """
+    Endpoint para criar um quiz com base nas especificações fornecidas.
+    """
     try:
-        # Read and split PDF text
-        raw_text = await read_pdf('boleto.pdf')
-        text_splitter = CharacterTextSplitter(separator="\n", chunk_size=1000, chunk_overlap=200, length_function=len)
-        texts = text_splitter.split_text(raw_text)
-        docsearch = load_or_create_embeddings(texts, request.index_path, request.docstore_path, request.id_map_path)
-        
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise HTTPException(status_code=500, detail="Chave API não encontrada.")
         
-        llm = OpenAI(api_key=api_key)
-        chain = load_qa_chain(llm, chain_type="stuff")
-
-        quiz_prompt = (
-            "Crie uma prova com 10 perguntas complexas sobre 'Os primeiros humanos', baseadas no livro fornecido. Cada pergunta deve ter no mínimo três linhas e deve estimular a interpretação de texto do aluno. Forneça três alternativas para cada pergunta, sendo apenas uma correta. As alternativas devem ser completas e não devem terminar com ponto de interrogação. Não inclua números antes das perguntas."
-        )
+        # Inicializa o cliente OpenAI com a chave API
+        client = OpenAI(api_key=api_key)
         
-        question_list = []
+        quiz_prompt = (
+            f"Crie uma prova com 10 perguntas sobre o tema: '{request.content}',"
+            f" baseadas no ano que irei informar e atente-se a atender a Base Nacional Comum Curricular. As perguntas deverão ser com o objetivo de estimular {request.goal} dos alunos."
+            f"Sobre as perguntas: use um vocabulário {request.vocabulary}, elas terão um nível de dificuldade {request.dificulty} e será respondida por alunos do {request.year} ano."
+            f"Informações adicionais: {request.prompt}."
+            " Forneça três alternativas(a,b,c) para cada pergunta, sendo apenas uma correta."
+            " Toda pergunta deverá terminar com um ponto de interrogação."
+            " As alternativas devem ser completas e não devem terminar com ponto de interrogação."
+        )
         quiz_list = []
         num_tries = 0
         max_tries = 10
         
         while len(quiz_list) < 10 and num_tries < max_tries:
-            docs = docsearch.similarity_search(quiz_prompt)
-            result = chain.run(input_documents=docs, question=quiz_prompt)
-            
-            lines = result.split('\n')
-            current_question = None
-            
-            for line in lines:
-                line = line.strip()
-                if line:
-                    if line.endswith('?'):
-                        if current_question and len(current_question["alternatives"]) == 3:
-                            if not are_similar(current_question["question"], question_list):
+            try:
+
+                response = client.chat.completions.create(
+                    model="gpt-3.5-turbo",  # Substitua pelo modelo adequado, como gpt-4
+                    messages=[
+                        {"role": "system", "content": "Você é um assistente de criação de desafios/quizes."},
+                        {"role": "user", "content": quiz_prompt}
+                    ],
+                    max_tokens=3000,  # Ajuste conforme necessário
+                    temperature=0.7
+                )
+
+                result = response.choices[0].message.content.strip()
+                if not result:
+                    logging.warning("Resposta vazia recebida da API.")
+                    raise HTTPException(status_code=500, detail="Resposta vazia da API.")
+                
+                lines = result.split('\n')
+                current_question = None
+                
+                for line in lines:
+                    line = line.strip()
+                    if line:
+                        if line.endswith('?'):
+                            if current_question and len(current_question["alternatives"]) == 3:
                                 quiz_list.append(current_question)
-                                question_list.append(current_question["question"])
-                                logging.info(f"Pergunta adicionada: {current_question['question']}")
                                 if len(quiz_list) >= 10:
                                     break
-                        current_question = {"question": line, "alternatives": []}
-                    elif current_question and len(current_question["alternatives"]) < 3 and line[0] in ('a', 'b', 'c'):
-                        current_question["alternatives"].append(line)
-            
-            if current_question and len(current_question["alternatives"]) == 3:
-                if not are_similar(current_question["question"], question_list):
-                    quiz_list.append(current_question)
-                    question_list.append(current_question["question"])
-                    logging.info(f"Pergunta final adicionada: {current_question['question']}")
-            
-            if len(quiz_list) < 10:
-                logging.info('Tentando novamente...')
-                quiz_prompt = (
-                    "Crie uma prova com 10 perguntas complexas sobre 'Os primeiros humanos', baseadas no livro fornecido. Cada pergunta deve ter no mínimo três linhas e deve estimular a interpretação de texto do aluno. Forneça três alternativas para cada pergunta, sendo apenas uma correta. As alternativas devem ser completas e não devem terminar com ponto de interrogação. Não inclua números antes das perguntas."
-                )
+                            current_question = {"question": line, "alternatives": []}
+                        elif current_question and len(current_question["alternatives"]) < 3 and line[0] in ('a', 'b', 'c'):
+                            current_question["alternatives"].append(line)
                 
-            num_tries += 1
+                if current_question and len(current_question["alternatives"]) == 3:
+                    quiz_list.append(current_question)
+                
+                if len(quiz_list) < 10:
+                    logging.info('Tentando novamente...')
+                
+                num_tries += 1
+            
+            except Exception as e:
+                logging.error(f"Erro ao gerar perguntas: {e}")
+                raise HTTPException(status_code=500, detail="Erro ao gerar perguntas.")
         
         if len(quiz_list) < 10:
             raise HTTPException(status_code=500, detail="Não foi possível gerar 10 perguntas únicas com 3 alternativas.")
-
+        
         return {"quiz": quiz_list}
+    
     except Exception as e:
+        logging.error(f"Erro ao gerar perguntas: {e}")
         raise HTTPException(status_code=500, detail=str(e))
