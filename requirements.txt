@@ -10,3 +10,4 @@ tiktoken
 aiofiles
 asyncio
 scikit-learn
+python-dotenv
