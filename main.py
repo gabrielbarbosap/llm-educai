@@ -108,124 +108,63 @@ async def create_quiz(request: QuizRequest):
         
         client = OpenAI(api_key=api_key)
         
-        # Prompt para criar o quiz
         quiz_prompt = (
-            f"Crie uma prova com 10 perguntas sobre o tema: '{request.content}',"
-            f" baseadas no ano que irei informar e atente-se a atender a Base Nacional Comum Curricular. As perguntas deverão ser com o objetivo de estimular {request.goal} dos alunos."
-            f"Sobre as perguntas: use um vocabulário {request.vocabulary}, elas terão um nível de dificuldade {request.difficulty} e será respondida por alunos do {request.year} ano."
-            f"Informações adicionais: {request.additional}."
-            " Forneça três alternativas (a,b,c) para cada pergunta, sendo apenas uma correta."
-            " Toda pergunta deverá terminar com um ponto de interrogação."
-            " As alternativas devem ser completas e não devem terminar com ponto de interrogação."
-            " Inclua a resposta correta e uma explicação do porquê ela é a correta."
+            f"Crie uma prova de dificuldade {request.difficulty} com exatamente 5 perguntas (é fundamental que você retorne sempre o número exato de perguntas.) sobre o tema '{request.content}'. "
+            f"Baseie-se no ano do aluno que é: {request.year}. E siga a Base Nacional Comum Curricular. As perguntas devem estimular {request.goal} dos alunos. "
+            f"Utilize um vocabulário {request.vocabulary} e um nível de dificuldade {request.difficulty} nas perguntas. "
+            f"As perguntas devem ser no formato do ENEM, isto é, complexas e desafiadoras. Inclua três alternativas (a, b, c), sendo apenas uma correta. "
+            f"As perguntas devem terminar com um ponto de interrogação(isto é fundamental). As alternativas devem ser completas e não terminar com ponto de interrogação(isto é fundamental). "
+            f"Identifique a resposta correta com a etiqueta 'Resposta Correta:' e indique a letra da alternativa correta (a, b, c). "
+            f"Evite usar negrito ou qualquer formatação adicional. "
+            f"Exemplo de formato a ser sempre seguido: Pergunta? \n a) Alternativa 1 \n b) Alternativa 2 \n c) Alternativa 3 \n Resposta Correta: a"
         )
         
-        quiz_list = []
-        num_tries = 0
-        max_tries = 10
-        
-        while len(quiz_list) < 10 and num_tries < max_tries:
-            try:
-                response = client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "Você é um assistente de criação de desafios/quizes."},
-                        {"role": "user", "content": quiz_prompt}
-                    ],
-                    max_tokens=3000,
-                    temperature=0.7
-                )
-
-                result = response.choices[0].message.content.strip()
-                if not result:
-                    logging.warning("Resposta vazia recebida da API.")
-                    raise HTTPException(status_code=500, detail="Resposta vazia da API.")
-                
-                lines = result.split('\n')
-                current_question = None
-                
-                for line in lines:
-                    line = line.strip()
-                    if line:
-                        if line.endswith('?'):
-                            if current_question and len(current_question["alternatives"]) == 3:
-                                quiz_list.append(current_question)
-                                if len(quiz_list) >= 10:
-                                    break
-                            current_question = {"question": line, "alternatives": [], "resposta_correta": "", "explicacao": ""}
-                        elif current_question and len(current_question["alternatives"]) < 3 and line[0] in ('a', 'b', 'c'):
-                            current_question["alternatives"].append(line)
-                        elif current_question and line.startswith("Resposta correta:"):
-                            current_question["resposta_correta"] = line[len("Resposta correta:"):].strip()
-                        elif current_question and line.startswith("Explicação da correta:"):
-                            current_question["explicacao"] = line[len("Explicação da correta:"):].strip()
-                
-                if current_question and len(current_question["alternatives"]) == 3:
-                    quiz_list.append(current_question)
-                
-                if len(quiz_list) < 10:
-                    logging.info('Tentando novamente...')
-                
-                num_tries += 1
-            
-            except Exception as e:
-                logging.error(f"Erro ao gerar perguntas: {e}")
-                raise HTTPException(status_code=500, detail="Erro ao gerar perguntas.")
-        
-        if len(quiz_list) < 10:
-            raise HTTPException(status_code=500, detail="Não foi possível gerar 10 perguntas únicas com 3 alternativas.")
-        
-        # Prompt para revisar e corrigir as perguntas
-        correction_prompt = (
-            "As seguintes perguntas de um quiz foram geradas. Revise e corrija-as se necessário, "
-            "incluindo a resposta correta e uma explicação do porquê ela é a correta para cada pergunta.\n\n"
-            "Perguntas e alternativas:\n"
-        )
-        for question in quiz_list:
-            correction_prompt += f"Pergunta: {question['question']}\n"
-            correction_prompt += f"a) {question['alternatives'][0]}\n"
-            correction_prompt += f"b) {question['alternatives'][1]}\n"
-            correction_prompt += f"c) {question['alternatives'][2]}\n"
-            correction_prompt += f"Resposta correta: {question['resposta_correta']}\n"
-            correction_prompt += f"Explicação da correta: {question['explicacao']}\n\n"
-        
-        correction_response = client.chat.completions.create(
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "Você é um assistente especializado em revisão de quizzes."},
-                {"role": "user", "content": correction_prompt}
+                {"role": "system", "content": "Você é um assistente especializado em criar provas para alunos de ensino médio."},
+                {"role": "user", "content": quiz_prompt}
             ],
-            max_tokens=3000,
-            temperature=0.5
+            max_tokens=1000,
+            temperature=0.3
         )
+        result = response.choices[0].message.content.strip()
+        if not result:
+            raise HTTPException(status_code=500, detail="Resposta vazia recebida da API.")
         
-        corrected_result = correction_response.choices[0].message.content.strip()
-        if not corrected_result:
-            logging.warning("Resposta vazia recebida da API de correção.")
-            raise HTTPException(status_code=500, detail="Resposta vazia da API de correção.")
-        
-        # Formata a resposta para o usuário
-        final_quiz = []
-        current_question = {}
-        lines = corrected_result.split('\n')
+        lines = result.split('\n')
+        quiz_list = []
+        current_question = None
+        correct_answer_letter = None
         
         for line in lines:
             line = line.strip()
-            if line.startswith("Pergunta:"):
-                if current_question:
-                    final_quiz.append(current_question)
-                current_question = {"question": line[len("Pergunta: "):].strip(), "alternatives": [], "resposta_correta": "", "explicacao": ""}
-            elif line.startswith("a) ") or line.startswith("b) ") or line.startswith("c) "):
-                current_question["alternatives"].append(line)
-            elif line.startswith("Resposta correta:"):
-                current_question["resposta_correta"] = line[len("Resposta correta:"):].strip()
-            elif line.startswith("Explicação da correta:"):
-                current_question["explicacao"] = line[len("Explicação da correta:"):].strip()
+            if line.endswith('?'):
+                if current_question and len(current_question["alternatives"]) == 3:
+                    if correct_answer_letter:
+                        # Adiciona a resposta correta
+                        current_question["correct_answer"] = correct_answer_letter
+                        quiz_list.append(current_question)
+                    else:
+                        logging.error("Resposta correta não encontrada para a pergunta.")
+                if len(quiz_list) >= 5:
+                    break
+                current_question = {"question": line, "alternatives": [], "correct_answer": ""}
+                correct_answer_letter = None
+            elif current_question and len(current_question["alternatives"]) < 3 and line[0] in ('a', 'b', 'c'):
+                current_question["alternatives"].append(line[3:].strip())  # Remove o prefixo (a, b, c) e espaços extras
+            elif line.startswith("Resposta Correta:"):
+                correct_answer_letter = line[len("Resposta Correta:"):].strip()
         
-        if current_question:
-            final_quiz.append(current_question)
+        if current_question and len(current_question["alternatives"]) == 3:
+            if correct_answer_letter:
+                current_question["correct_answer"] = correct_answer_letter
+                quiz_list.append(current_question)
         
-        return {"quiz": final_quiz}
+        if len(quiz_list) < 5:
+            logging.warning(f"Foi gerado menos de 5 perguntas. Foram geradas {len(quiz_list)} perguntas.")
+        
+        return {"quiz": quiz_list, "warning": "Menos de 5 perguntas foram geradas." if len(quiz_list) < 5 else None}
     
     except Exception as e:
         logging.error(f"Erro ao gerar perguntas: {e}")
