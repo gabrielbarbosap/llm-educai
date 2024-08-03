@@ -109,23 +109,24 @@ async def create_quiz(request: QuizRequest):
         client = OpenAI(api_key=api_key)
         
         quiz_prompt = (
-            f"Crie uma prova de dificuldade {request.difficulty} com exatamente 5 perguntas (é fundamental que você retorne sempre o número exato de perguntas.) sobre o tema '{request.content}'. "
+            f"Crie uma prova de dificuldade {request.difficulty} com exatamente 10 perguntas (é fundamental que você retorne sempre o número exato de perguntas.) sobre o tema '{request.content}'. "
             f"Baseie-se no ano do aluno que é: {request.year}. E siga a Base Nacional Comum Curricular. As perguntas devem estimular {request.goal} dos alunos. "
             f"Utilize um vocabulário {request.vocabulary} e um nível de dificuldade {request.difficulty} nas perguntas. "
             f"As perguntas devem ser no formato do ENEM, isto é, complexas e desafiadoras. Inclua três alternativas (a, b, c), sendo apenas uma correta. "
             f"As perguntas devem terminar com um ponto de interrogação(isto é fundamental). As alternativas devem ser completas e não terminar com ponto de interrogação(isto é fundamental). "
             f"Identifique a resposta correta com a etiqueta 'Resposta Correta:' e indique a letra da alternativa correta (a, b, c). "
+            f"Busque não repetir nenhuma pergunta, isso é fundamental. Alem disso, siga essas instruções adicionais: {request.additional}"
             f"Evite usar negrito ou qualquer formatação adicional. "
             f"Exemplo de formato a ser sempre seguido: Pergunta? \n a) Alternativa 1 \n b) Alternativa 2 \n c) Alternativa 3 \n Resposta Correta: a"
         )
         
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "Você é um assistente especializado em criar provas para alunos de ensino médio."},
                 {"role": "user", "content": quiz_prompt}
             ],
-            max_tokens=1000,
+            max_tokens=1500,
             temperature=0.3
         )
         result = response.choices[0].message.content.strip()
@@ -147,7 +148,7 @@ async def create_quiz(request: QuizRequest):
                         quiz_list.append(current_question)
                     else:
                         logging.error("Resposta correta não encontrada para a pergunta.")
-                if len(quiz_list) >= 5:
+                if len(quiz_list) >= 10:
                     break
                 current_question = {"question": line, "alternatives": [], "correct_answer": ""}
                 correct_answer_letter = None
@@ -161,10 +162,10 @@ async def create_quiz(request: QuizRequest):
                 current_question["correct_answer"] = correct_answer_letter
                 quiz_list.append(current_question)
         
-        if len(quiz_list) < 5:
+        if len(quiz_list) < 10:
             logging.warning(f"Foi gerado menos de 5 perguntas. Foram geradas {len(quiz_list)} perguntas.")
         
-        return {"quiz": quiz_list, "warning": "Menos de 5 perguntas foram geradas." if len(quiz_list) < 5 else None}
+        return {"quiz": quiz_list, "warning": "Menos de 5 perguntas foram geradas." if len(quiz_list) < 10 else None}
     
     except Exception as e:
         logging.error(f"Erro ao gerar perguntas: {e}")
