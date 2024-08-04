@@ -174,13 +174,12 @@ async def create_quiz(request: QuizRequest):
 class ScheduleRequest(BaseModel):
     topic: str
     details: str
-    start_date: str
-    end_date: str
     class_duration: str
     additional: str
+    number_of_classes: int
 
 class ScheduleItem(BaseModel):
-    date: str
+    lesson_number: int
     topic: str
     duration: str
     suggestions: str
@@ -204,18 +203,18 @@ async def create_schedule(request: ScheduleRequest):
             f"Crie um cronograma de aula detalhado com base nos seguintes tópicos e informações: \n\n"
             f"Tópico: {request.topic}\n"
             f"Detalhes: {request.details}\n"
-            f"Data de Início: {request.start_date}\n"
-            f"Data de Término: {request.end_date}\n"
             f"Duração das Aulas: {request.class_duration}\n"
-            f"Instruções Adicionais: {request.additional}\n\n"
-            f"O cronograma deve incluir datas específicas para cada aula, tópicos a serem abordados em cada aula, "
-            f"e a duração de cada aula. Inclua sugestões de como conduzir a aula, como atividades ou discussões. Evite usar formatação adicional e siga o formato abaixo:\n\n"
-            f"Data: DD/MM/AAAA\n"
+            f"Instruções Adicionais: {request.additional}\n"
+            f"Número de Aulas: {request.number_of_classes}\n\n"
+            f"O cronograma deve incluir a numeração das aulas, tópicos a serem abordados em cada aula, "
+            f"e a duração de cada aula. Inclua sugestões de como conduzir a aula, como atividades ou discussões. "
+            f"Evite usar formatação adicional e siga o formato abaixo:\n\n"
+            f"Aula: Número da aula\n"
             f"Tópico: Descrição do tópico\n"
             f"Duração: Tempo estimado\n"
             f"Sugestões: Atividades ou tópicos para discussão\n\n"
             f"Exemplo:\n"
-            f"Data: 10/08/2024\n"
+            f"Aula: 1\n"
             f"Tópico: Introdução à Física\n"
             f"Duração: 60 minutos\n"
             f"Sugestões: Discutir conceitos básicos e fazer uma demonstração prática\n\n"
@@ -228,10 +227,10 @@ async def create_schedule(request: ScheduleRequest):
                 {"role": "system", "content": "Você é um assistente especializado em criar cronogramas de aula detalhados."},
                 {"role": "user", "content": schedule_prompt}
             ],
-            max_tokens=1300,
+            max_tokens=1500,
             temperature=0.3
         )
-        print(response)
+        
         result = response.choices[0].message.content.strip()
         if not result:
             raise HTTPException(status_code=500, detail="Resposta vazia recebida da API.")
@@ -243,10 +242,10 @@ async def create_schedule(request: ScheduleRequest):
         current_item = {}
         for line in schedule_lines:
             line = line.strip()
-            if line.startswith("Data:"):
+            if line.startswith("Aula:"):
                 if current_item:
                     schedule_list.append(ScheduleItem(**current_item))
-                current_item = {"date": line.split("Data:")[1].strip()}
+                current_item = {"lesson_number": int(line.split("Aula:")[1].strip())}
             elif line.startswith("Tópico:"):
                 current_item["topic"] = line.split("Tópico:")[1].strip()
             elif line.startswith("Duração:"):
@@ -257,6 +256,9 @@ async def create_schedule(request: ScheduleRequest):
         # Adiciona o último item
         if current_item:
             schedule_list.append(ScheduleItem(**current_item))
+        
+        if len(schedule_list) != request.number_of_classes:
+            raise HTTPException(status_code=500, detail="Número de aulas gerado não corresponde ao número solicitado.")
         
         if not schedule_list:
             raise HTTPException(status_code=500, detail="Cronograma não gerado corretamente.")
