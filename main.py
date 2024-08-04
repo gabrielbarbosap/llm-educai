@@ -170,3 +170,99 @@ async def create_quiz(request: QuizRequest):
     except Exception as e:
         logging.error(f"Erro ao gerar perguntas: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+class ScheduleRequest(BaseModel):
+    topic: str
+    details: str
+    start_date: str
+    end_date: str
+    class_duration: str
+    additional: str
+
+class ScheduleItem(BaseModel):
+    date: str
+    topic: str
+    duration: str
+    suggestions: str
+
+class ScheduleResponse(BaseModel):
+    schedule: List[ScheduleItem]
+
+@app.post("/create_schedule", response_model=ScheduleResponse)
+async def create_schedule(request: ScheduleRequest):
+    """
+    Endpoint para criar um cronograma de aula detalhado com base nos tópicos fornecidos.
+    """
+    try:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=500, detail="Chave API não encontrada.")
+        
+        client = OpenAI(api_key=api_key)
+        
+        schedule_prompt = (
+            f"Crie um cronograma de aula detalhado com base nos seguintes tópicos e informações: \n\n"
+            f"Tópico: {request.topic}\n"
+            f"Detalhes: {request.details}\n"
+            f"Data de Início: {request.start_date}\n"
+            f"Data de Término: {request.end_date}\n"
+            f"Duração das Aulas: {request.class_duration}\n"
+            f"Instruções Adicionais: {request.additional}\n\n"
+            f"O cronograma deve incluir datas específicas para cada aula, tópicos a serem abordados em cada aula, "
+            f"e a duração de cada aula. Inclua sugestões de como conduzir a aula, como atividades ou discussões. Evite usar formatação adicional e siga o formato abaixo:\n\n"
+            f"Data: DD/MM/AAAA\n"
+            f"Tópico: Descrição do tópico\n"
+            f"Duração: Tempo estimado\n"
+            f"Sugestões: Atividades ou tópicos para discussão\n\n"
+            f"Exemplo:\n"
+            f"Data: 10/08/2024\n"
+            f"Tópico: Introdução à Física\n"
+            f"Duração: 60 minutos\n"
+            f"Sugestões: Discutir conceitos básicos e fazer uma demonstração prática\n\n"
+            f"Crie um cronograma que seja detalhado e organizado, facilitando o planejamento das aulas."
+        )
+        
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",  # Ou outro modelo adequado
+            messages=[
+                {"role": "system", "content": "Você é um assistente especializado em criar cronogramas de aula detalhados."},
+                {"role": "user", "content": schedule_prompt}
+            ],
+            max_tokens=1300,
+            temperature=0.3
+        )
+        print(response)
+        result = response.choices[0].message.content.strip()
+        if not result:
+            raise HTTPException(status_code=500, detail="Resposta vazia recebida da API.")
+        
+        # Processa a resposta para garantir o formato adequado
+        schedule_lines = result.split('\n')
+        schedule_list = []
+        
+        current_item = {}
+        for line in schedule_lines:
+            line = line.strip()
+            if line.startswith("Data:"):
+                if current_item:
+                    schedule_list.append(ScheduleItem(**current_item))
+                current_item = {"date": line.split("Data:")[1].strip()}
+            elif line.startswith("Tópico:"):
+                current_item["topic"] = line.split("Tópico:")[1].strip()
+            elif line.startswith("Duração:"):
+                current_item["duration"] = line.split("Duração:")[1].strip()
+            elif line.startswith("Sugestões:"):
+                current_item["suggestions"] = line.split("Sugestões:")[1].strip()
+        
+        # Adiciona o último item
+        if current_item:
+            schedule_list.append(ScheduleItem(**current_item))
+        
+        if not schedule_list:
+            raise HTTPException(status_code=500, detail="Cronograma não gerado corretamente.")
+        
+        return {"schedule": schedule_list}
+    
+    except Exception as e:
+        logging.error(f"Erro ao gerar cronograma: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
