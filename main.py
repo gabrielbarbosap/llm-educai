@@ -19,6 +19,50 @@ from openai import OpenAI
 app = FastAPI()
 load_dotenv()
 
+class ScheduleRequest(BaseModel):
+    topic: str
+    details: str
+    class_duration: str
+    additional: str
+    number_of_classes: int
+
+class ScheduleItem(BaseModel):
+    lesson_number: int
+    topic: str
+    duration: str
+    suggestions: str
+
+class ScheduleResponse(BaseModel):
+    schedule: List[ScheduleItem]
+
+
+class QuizRequest(BaseModel):
+    content: str
+    goal: str
+    vocabulary: str
+    difficulty: str
+    year: str
+    additional: str
+
+class QueryRequest(BaseModel):
+    """
+    Modelo de solicitação para consultar o PDF.
+    """
+    query: str
+    index_path: str
+    docstore_path: str
+    id_map_path: str
+    
+class StoryRequest(BaseModel):
+    subject: str
+    key_concepts: str
+    audience_age: int
+    style: str
+    length: int
+
+class StoryResponse(BaseModel):
+    story: str
+
 # Inicializa o logging
 logging.basicConfig(level=logging.INFO)
 
@@ -54,15 +98,6 @@ async def read_pdf(pdf_path):
     raw_text = ''.join([page.extract_text() for page in reader.pages if page.extract_text()])
     return raw_text
 
-class QueryRequest(BaseModel):
-    """
-    Modelo de solicitação para consultar o PDF.
-    """
-    query: str
-    index_path: str
-    docstore_path: str
-    id_map_path: str
-
 @app.post("/ask")
 async def ask_question(request: QueryRequest):
     """
@@ -87,14 +122,6 @@ async def ask_question(request: QueryRequest):
         return {"result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-class QuizRequest(BaseModel):
-    content: str
-    goal: str
-    vocabulary: str
-    difficulty: str
-    year: str
-    additional: str
 
 @app.post("/create_quiz")
 async def create_quiz(request: QuizRequest):
@@ -171,27 +198,8 @@ async def create_quiz(request: QuizRequest):
         logging.error(f"Erro ao gerar perguntas: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     
-class ScheduleRequest(BaseModel):
-    topic: str
-    details: str
-    class_duration: str
-    additional: str
-    number_of_classes: int
-
-class ScheduleItem(BaseModel):
-    lesson_number: int
-    topic: str
-    duration: str
-    suggestions: str
-
-class ScheduleResponse(BaseModel):
-    schedule: List[ScheduleItem]
-
 @app.post("/create_schedule", response_model=ScheduleResponse)
-async def create_schedule(request: ScheduleRequest):
-    """
-    Endpoint para criar um cronograma de aula detalhado com base nos tópicos fornecidos.
-    """
+async def create_schedule(request: ScheduleRequest): 
     try:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -268,3 +276,51 @@ async def create_schedule(request: ScheduleRequest):
     except Exception as e:
         logging.error(f"Erro ao gerar cronograma: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/create_story", response_model=StoryResponse)
+async def create_story(request: StoryRequest):
+    """
+    Endpoint para criar uma história lúdica para ensinar um conteúdo com base nos parâmetros fornecidos.
+    """
+    try:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=500, detail="Chave API não encontrada.")
+        
+        client = OpenAI(api_key=api_key)
+        
+        story_prompt = (
+            f"Crie uma história curta e educativa para ensinar o seguinte conteúdo:\n\n"
+            f"Assunto: {request.subject}\n"
+            f"Conceitos-chave: {request.key_concepts}\n"
+            f"Idade do Público-Alvo: {request.audience_age}\n"
+            f"Estilo: {request.style}\n"
+            f"Duração da História: Aproximadamente {request.length} minutos\n\n"
+            f"A história deve ser clara, envolvente e adequada para a idade especificada. "
+            f"Faça com que os conceitos-chave sejam apresentados de maneira natural e divertida. "
+            f"Evite explicações longas e mantenha a narrativa direta ao ponto.\n\n"
+            f"Exemplo de resposta esperada:\n"
+            f"Era uma vez um herói que descobriu um novo conceito de física e usou-o para salvar o mundo. "
+            f"Ele enfrentou desafios e fez descobertas sobre como a força e a massa influenciam a aceleração. "
+            f"No final, ele explica o conceito de forma simples para o público.\n\n"
+            f"Crie uma história que seja educativa e cativante."
+        )
+        
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",  # Ou outro modelo adequado
+            messages=[
+                {"role": "system", "content": "Você é um assistente especializado em criar histórias educativas e envolventes."},
+                {"role": "user", "content": story_prompt}
+            ],
+            max_tokens=1000,  # Ajuste conforme necessário
+            temperature=0.7
+        )
+        
+        result = response.choices[0].message.content.strip()
+        if not result:
+            raise HTTPException(status_code=500, detail="Resposta vazia recebida da API.")
+        
+        return {"story": result}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar a história: {e}")
