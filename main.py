@@ -324,3 +324,104 @@ async def create_story(request: StoryRequest):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao gerar a história: {e}")
+    
+class Question(BaseModel):
+    question: str
+    selected_answer: str
+    correct_answer: str
+
+class AnswerRequest(BaseModel):
+    questions: list[Question]
+
+@app.post("/grade_quiz")
+async def grade_quiz(request: AnswerRequest):
+    """
+    Endpoint para corrigir várias perguntas e fornecer feedback com base nas respostas fornecidas.
+    """
+    try:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=500, detail="Chave API não encontrada.")
+        
+        client = OpenAI(api_key=api_key)
+
+        # Formatação do prompt para o modelo
+        questions_str = "\n".join([
+            f"Pergunta: {q.question}\nResposta Marcada: {q.selected_answer}\nResposta Correta: {q.correct_answer}"
+            for q in request.questions
+        ])
+
+        prompt = (
+            "Analise o quiz a seguir e identifique quais respostas estão corretas e quais estão erradas. "
+            "Comporte-se como um professor gentil e motivador, oferecendo feedback que ajude o aluno a crescer. "
+            "Sua resposta deve seguir este padrão: "
+            "'Você acertou as questões: (número das questões corretas(APENAS O NUMERO))' "
+            "'Sobre seus erros: (questões erradas e dicas de melhoria detalhadas, oferecendo sugestões de estudo e explicações claras para ajudar no entendimento)' "
+            "'Dicas de estudo: (sugestões construtivas e encorajadoras sobre como aprofundar o conhecimento, como recursos recomendados e estratégias de estudo eficazes)'"
+            "Na seção sobre seus erros siga esse esse exemplo: "
+            "- Questão 3: A capital do Brasil é Brasília, e não o Rio de Janeiro. É importante lembrar que Brasília foi inaugurada como a nova capital em 1960, com o objetivo de promover o desenvolvimento do interior do país. Uma dica é revisar a história das capitais brasileiras e as razões que levaram à mudança para Brasília."
+            "Na seção de dicas de estuda siga esse esse exemplo: "
+            "Dicas de estudo:\n"
+            "- Para aprofundar seu conhecimento sobre a Primeira Guerra Mundial, você pode ler livros como \"A Primeira Guerra Mundial\" de John Keegan ou \"A Grande Guerra\" de Paul Fussell. Esses autores oferecem uma visão abrangente e detalhada do conflito.\n"
+            "- Assistir a documentários ou séries sobre a Primeira Guerra Mundial também pode ser muito útil. O documentário \"The Great War\" da PBS é uma excelente opção.\n"
+            "- Além disso, considere fazer resumos e mapas mentais sobre os principais eventos e tratados da guerra, isso pode ajudar a fixar melhor as informações. Lembre-se, cada erro é uma oportunidade de aprendizado, e você está no caminho certo! Continue assim!"
+            "Certifique-se de ser encorajador e mostrar que erros são oportunidades para aprender. "
+            "Mantenha o feedback claro, positivo e útil, com informações que inspirem e guiem o aluno."
+            f"\n\n{questions_str}"
+        )
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Você é um assistente especializado em corrigir perguntas e fornecer feedback detalhado."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=1500,
+            temperature=0.3
+        )
+        
+        result = response.choices[0].message.content.strip()
+        if not result:
+            raise HTTPException(status_code=500, detail="Resposta vazia recebida da API.")
+        
+        # Estrutura da resposta
+        feedback = {
+            "acertos": [],
+            "erros": [],
+            "dicas_de_estudo": []
+        }
+        print(result)
+        # Separar seções usando linhas e padrões específicos
+        lines = result.split('\n')
+        section = None
+        
+        for line in lines:
+            print(line)
+            line = line.strip()
+            if line.startswith("Você acertou as questões:"):
+                section = "acertos"
+                feedback["acertos"] = [q.strip() for q in line[len("Você acertou as questões:"):].strip().split(",") if q.strip()]
+            elif line.startswith("Sobre seus erros:"):
+                section = "erros"
+                feedback["erros"] = []
+            elif line.startswith("Dicas de estudo:"):
+                section = "dicas_de_estudo"
+                feedback["dicas_de_estudo"] = []
+            elif section == "erros":
+                if line:
+                    feedback["erros"].append(line)
+            elif section == "dicas_de_estudo":
+                if line:
+                    feedback["dicas_de_estudo"].append(line)
+        
+        # Se não houver erros, criar uma lista vazia
+        if not feedback["erros"]:
+            feedback["erros"] = []
+        if not feedback["dicas_de_estudo"]:
+            feedback["dicas_de_estudo"] = []
+
+        return feedback
+    
+    except Exception as e:
+        logging.error(f"Erro ao corrigir as perguntas: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
