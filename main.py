@@ -15,9 +15,18 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from dotenv import load_dotenv
 from openai import OpenAI
+from starlette.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 load_dotenv()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Permite todas as origens. Substitua "*" por uma lista específica de domínios para maior segurança.
+    allow_credentials=True,
+    allow_methods=["*"],  # Permite todos os métodos HTTP. Ajuste conforme necessário.
+    allow_headers=["*"],  # Permite todos os cabeçalhos. Ajuste conforme necessário.
+)
 
 class ScheduleRequest(BaseModel):
     topic: str
