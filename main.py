@@ -50,6 +50,7 @@ class QuizRequest(BaseModel):
     goal: str
     vocabulary: str
     difficulty: str
+    discipline: str
     year: str
     additional: str
 
@@ -145,7 +146,7 @@ async def create_quiz(request: QuizRequest):
         client = OpenAI(api_key=api_key)
         
         quiz_prompt = (
-            f"Crie uma prova de dificuldade {request.difficulty} com exatamente 10 perguntas (é fundamental que você retorne sempre o número exato de perguntas.) sobre o tema '{request.content}'. "
+            f"Crie uma prova de {request.discipline} com dificuldade {request.difficulty} com exatamente 10 perguntas (é fundamental que você retorne sempre o número exato de perguntas.) sobre o tema '{request.content}'. "
             f"Baseie-se no ano do aluno que é: {request.year}. E siga a Base Nacional Comum Curricular. As perguntas devem estimular {request.goal} dos alunos. "
             f"Utilize um vocabulário {request.vocabulary} e um nível de dificuldade {request.difficulty} nas perguntas. "
             f"As perguntas devem ser no formato do ENEM, isto é, complexas e desafiadoras. Inclua três alternativas (a, b, c), sendo apenas uma correta. "
